@@ -1,0 +1,14 @@
+.env
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+frontend/dist/
+static/
+
+.DS_Store
+
+# Ne kerüljön a repóba: éles névsor / szövegminta (fixtures/ tesztnek elég).
+xls/*.xlsx
+Doc/*.docx

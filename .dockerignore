@@ -1,0 +1,9 @@
+.git
+**/node_modules
+frontend/dist
+**/venv
+.env
+**/Doc
+**/xls
+**/*.xlsx
+**/*.docx
