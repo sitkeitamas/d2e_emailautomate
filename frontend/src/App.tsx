@@ -425,8 +425,6 @@ export default function App() {
         </ol>
       </section>
 
-      {globalError ? <div className="panel error">{globalError}</div> : null}
-
       {missingCodeLabels.length > 0 ? (
         <div className="panel warn-banner">
           <strong>Figyelem:</strong> {missingCodeLabels.length} résztvevőnek nincs kitöltve a „
@@ -603,6 +601,11 @@ export default function App() {
             Küldés (szerver mód szerint)
           </button>
         </div>
+        {globalError ? (
+          <div className="panel error" style={{ marginTop: "0.75rem" }}>
+            {globalError}
+          </div>
+        ) : null}
         <p className="muted" style={{ marginTop: "0.6rem" }}>
           <strong>dry-run:</strong> nem megy SMTP; <strong>sandbox:</strong> összes tesztlevél egy biztonságos
           címre; <strong>live:</strong> valódi címzettek.
