@@ -147,6 +147,8 @@ export default function App() {
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [globalError, setGlobalError] = useState<string>("");
+  const [uploadInfo, setUploadInfo] = useState("");
+  const [uploadError, setUploadError] = useState("");
   const [pasteText, setPasteText] = useState("");
 
   const [columns, setColumns] = useState<string[]>([]);
@@ -209,27 +211,40 @@ export default function App() {
     };
   }, [sendLog]);
 
+  async function parseEditedText(text: string) {
+    const parsed = await fetchJson<ParseResponse>("/api/parse-paste", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    applyImport(parsed);
+    setUploadInfo(`Beolvasva: ${parsed.row_count} sor (${parsed.columns.join(", ")}).`);
+    setUploadError("");
+  }
+
   async function onCsv(file: File | null) {
     setGlobalError("");
+    setUploadInfo("");
+    setUploadError("");
     setPreview(null);
     setSendLog(null);
     if (!file) return;
     setBusy(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const parsed = await fetchJson<ParseResponse>("/api/parse-csv", {
-        method: "POST",
-        body: fd,
-      });
-      applyImport(parsed);
+      const text = await file.text();
+      const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      setPasteText(normalized);
+      await parseEditedText(normalized);
+      setUploadInfo(
+        "Fájl betöltve és beolvasva. Ha javítasz a szövegen, kattints újra a „Beolvasás” gombra.",
+      );
     } catch (e) {
       setColumns([]);
       setRows([]);
       setEmailColumn("");
       setNameColumn("");
       setCodeColumn("");
-      setGlobalError(e instanceof Error ? e.message : String(e));
+      setUploadError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -237,27 +252,26 @@ export default function App() {
 
   async function onParsePaste() {
     setGlobalError("");
+    setUploadInfo("");
+    setUploadError("");
     setPreview(null);
     setSendLog(null);
     if (!pasteText.trim()) {
-      setGlobalError("Illessz be legalább a fejlécet és egy adatsort (Excel: jelöld ki a táblát, majd Ctrl+C / Cmd+C).");
+      setUploadError(
+        "Illessz be legalább a fejlécet és egy adatsort (Excel: jelöld ki a táblát, majd Ctrl+C / Cmd+C).",
+      );
       return;
     }
     setBusy(true);
     try {
-      const parsed = await fetchJson<ParseResponse>("/api/parse-paste", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: pasteText }),
-      });
-      applyImport(parsed);
+      await parseEditedText(pasteText);
     } catch (e) {
       setColumns([]);
       setRows([]);
       setEmailColumn("");
       setNameColumn("");
       setCodeColumn("");
-      setGlobalError(e instanceof Error ? e.message : String(e));
+      setUploadError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -444,8 +458,8 @@ export default function App() {
           onChange={(e) => void onCsv(e.target.files?.[0] ?? null)}
         />
         <p className="muted" style={{ marginTop: "0.65rem" }}>
-          Vagy másold ki az Excelből (fejléc + sorok), és illeszd be ide — tabbal elválasztott, ahogy az
-          Excel másolja:
+          Fájl feltöltés után a tartalom ide kerül szerkeszthető formában. Javíts rajta, majd kattints
+          a „Beolvasás” gombra (ez küldi újra szerverre a módosított adatot).
         </p>
         <textarea
           id="paste"
@@ -458,9 +472,19 @@ export default function App() {
         />
         <div className="row-actions" style={{ marginTop: "0.5rem" }}>
           <button type="button" className="primary" disabled={busy} onClick={() => void onParsePaste()}>
-            Beolvasás (beillesztett szöveg)
+            Beolvasás (aktuális szerkesztett szöveg)
           </button>
         </div>
+        {uploadError ? (
+          <p className="error" style={{ marginTop: "0.45rem", fontSize: "0.92rem" }}>
+            {uploadError}
+          </p>
+        ) : null}
+        {uploadInfo ? (
+          <p className="muted" style={{ marginTop: "0.45rem" }}>
+            {uploadInfo}
+          </p>
+        ) : null}
         <p className="muted" style={{ marginTop: "0.5rem" }}>
           Teszt fájlok: <code>fixtures/participants_fake.csv</code> (minden rendben),{" "}
           <code>fixtures/participants_test_errors.csv</code> (szándékos hiba: egy sorban érvénytelen e-mail — küldés/dry
