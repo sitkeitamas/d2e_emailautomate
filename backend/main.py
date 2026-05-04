@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,7 +95,7 @@ def preview(req: PreviewRequest) -> PreviewResponse:
         except ValueError as e:
             raise HTTPException(400, f"Érvénytelen e-mail: {raw_email!r} ({e})") from e
 
-        name: str | None = None
+        name: Optional[str] = None
         if req.name_column and req.name_column in row:
             name = row[req.name_column] or None
 

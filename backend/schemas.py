@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -9,7 +13,7 @@ class ParseCsvResponse(BaseModel):
 
 class PreviewItem(BaseModel):
     to_email: str
-    to_name: str | None = None
+    to_name: Optional[str] = None
     subject: str
     body: str
     missing_placeholders: list[str] = Field(default_factory=list)
@@ -20,7 +24,7 @@ class PreviewRequest(BaseModel):
     subject_template: str = "Értesítés"
     rows: list[dict[str, str]]
     email_column: str
-    name_column: str | None = None
+    name_column: Optional[str] = None
     limit: int = 50
 
 
@@ -33,7 +37,7 @@ class SendRequest(BaseModel):
     subject_template: str = "Értesítés"
     rows: list[dict[str, str]]
     email_column: str
-    name_column: str | None = None
+    name_column: Optional[str] = None
 
 
 class SendResultItem(BaseModel):
