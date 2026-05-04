@@ -150,6 +150,26 @@ button.primary:disabled {
   font-size: 0.92rem;
 }
 
+.panel-success {
+  border-color: #2f6f45;
+  background: linear-gradient(180deg, #142620 0%, #1a222c 55%);
+  color: #d4f5df;
+  font-size: 0.95rem;
+}
+
+.panel-success strong {
+  color: var(--ok);
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 1.05rem;
+}
+
+.panel-partial {
+  border-color: #6b4f2a;
+  color: #ffe8c8;
+  font-size: 0.93rem;
+}
+
 .row-warn td {
   background: rgba(255, 107, 107, 0.08);
 }

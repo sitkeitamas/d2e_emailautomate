@@ -196,6 +196,19 @@ export default function App() {
     return labelsForMissingCode(rows, codeColumn, nameColumn, emailColumn);
   }, [rows, codeColumn, nameColumn, emailColumn]);
 
+  const sendOutcome = useMemo(() => {
+    if (!sendLog?.results?.length) return null;
+    const failed = sendLog.results.filter((r) => !r.ok);
+    const ok = sendLog.results.filter((r) => r.ok);
+    return {
+      mode: sendLog.mode,
+      allOk: failed.length === 0,
+      failCount: failed.length,
+      okCount: ok.length,
+      total: sendLog.results.length,
+    };
+  }, [sendLog]);
+
   async function onCsv(file: File | null) {
     setGlobalError("");
     setPreview(null);
@@ -451,7 +464,10 @@ export default function App() {
           </button>
         </div>
         <p className="muted" style={{ marginTop: "0.5rem" }}>
-          Teszt: <code>fixtures/participants_fake.csv</code>. Éles névsor ne kerüljön nyilvános repóba.
+          Teszt fájlok: <code>fixtures/participants_fake.csv</code> (minden rendben),{" "}
+          <code>fixtures/participants_test_errors.csv</code> (szándékos hiba: egy sorban érvénytelen e-mail — küldés/dry
+          run közben látszik). Üres kód teszt: hiányos „Kód” cellát adj a táblázathoz. Éles névsor ne
+          kerüljön nyilvános repóba.
         </p>
         {rows.length ? (
           <p className="muted" style={{ marginTop: "0.35rem" }}>
@@ -626,10 +642,39 @@ export default function App() {
         </section>
       ) : null}
 
-      {sendLog?.results?.length ? (
-        <section className="panel">
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Küldés napló (mód: {sendLog.mode})</h2>
-          <table>
+      {sendOutcome && sendLog?.results?.length ? (
+        <>
+          {sendOutcome.allOk ? (
+            <div className="panel panel-success">
+              {sendOutcome.mode === "dry-run" ? (
+                <>
+                  <strong>Dry run sikeres</strong>
+                  Mind a(z) {sendOutcome.total} sor rendben lenne (tárgy + szöveg validálva); SMTP nem futott, egyetlen
+                  levél sem ment ki.
+                </>
+              ) : sendOutcome.mode === "sandbox" ? (
+                <>
+                  <strong>Küldés kész (sandbox)</strong>
+                  {sendOutcome.total} levél ment a sandbox címre — nem az eredeti címzettek postafiókjába.
+                </>
+              ) : (
+                <>
+                  <strong>Küldés kész (live)</strong>
+                  {sendOutcome.total} levél elküldve a megadott e-mail oszlop szerint.
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="panel panel-partial">
+              <strong>Volt hiba</strong>
+              {sendOutcome.failCount} sor nem rendben ({sendOutcome.okCount} sor OK). A „Részlet” oszlopban látszik az ok —
+              gyakori: üres kód, rosszul kiválasztott e-mail oszlop (nincs @), hiányzó helyőrző a sablonban.
+            </div>
+          )}
+
+          <section className="panel">
+            <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>Küldés napló (mód: {sendLog.mode})</h2>
+            <table>
             <thead>
               <tr>
                 <th>Címzett</th>
@@ -649,7 +694,8 @@ export default function App() {
               ))}
             </tbody>
           </table>
-        </section>
+          </section>
+        </>
       ) : null}
     </div>
   );
