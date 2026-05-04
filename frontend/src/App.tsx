@@ -4,6 +4,7 @@ type PublicConfig = {
   mail_mode: string;
   smtp_host: string;
   smtp_port: string;
+  app_env?: string;
 };
 
 type ParseResponse = {
@@ -26,6 +27,29 @@ type PreviewResponse = { items: PreviewItem[] };
 type SendResponse = {
   mode: string;
   results: { to_email: string; ok: boolean; detail: string }[];
+};
+
+type ServerSettings = {
+  mail_mode: "dry-run" | "sandbox" | "live";
+  sandbox_redirect_to?: string | null;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_tls: boolean;
+  smtp_user?: string | null;
+  smtp_password_set: boolean;
+  mail_from: string;
+};
+
+type ServerSettingsUpdate = {
+  mail_mode: "dry-run" | "sandbox" | "live";
+  sandbox_redirect_to?: string | null;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_tls: boolean;
+  smtp_user?: string | null;
+  smtp_password?: string | null;
+  clear_smtp_password: boolean;
+  mail_from: string;
 };
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -145,6 +169,7 @@ function labelsForMissingCode(
 
 export default function App() {
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
+  const [activeMenu, setActiveMenu] = useState<"campaign" | "server">("campaign");
   const [busy, setBusy] = useState(false);
   const [globalError, setGlobalError] = useState<string>("");
   const [uploadInfo, setUploadInfo] = useState("");
@@ -164,12 +189,29 @@ export default function App() {
 
   const [preview, setPreview] = useState<PreviewItem[] | null>(null);
   const [sendLog, setSendLog] = useState<SendResponse | null>(null);
+  const [serverSettings, setServerSettings] = useState<ServerSettings | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [smtpPasswordInput, setSmtpPasswordInput] = useState("");
+  const [clearSmtpPassword, setClearSmtpPassword] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     fetchJson<PublicConfig>("/api/config")
       .then((c) => {
         if (!cancelled) setCfg(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson<ServerSettings>("/api/server-settings")
+      .then((s) => {
+        if (!cancelled) setServerSettings(s);
       })
       .catch(() => {});
     return () => {
@@ -390,6 +432,43 @@ export default function App() {
     }
   }
 
+  async function saveServerSettings() {
+    if (!serverSettings) return;
+    setSettingsBusy(true);
+    setSettingsMessage("");
+    try {
+      const payload: ServerSettingsUpdate = {
+        mail_mode: serverSettings.mail_mode,
+        sandbox_redirect_to: serverSettings.sandbox_redirect_to || null,
+        smtp_host: serverSettings.smtp_host,
+        smtp_port: Number(serverSettings.smtp_port),
+        smtp_tls: serverSettings.smtp_tls,
+        smtp_user: serverSettings.smtp_user || null,
+        smtp_password: smtpPasswordInput || null,
+        clear_smtp_password: clearSmtpPassword,
+        mail_from: serverSettings.mail_from,
+      };
+      const saved = await fetchJson<ServerSettings>("/api/server-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setServerSettings(saved);
+      setSmtpPasswordInput("");
+      setClearSmtpPassword(false);
+      setSettingsMessage("Szerverbeállítások elmentve.");
+      setCfg((old) =>
+        old
+          ? { ...old, mail_mode: saved.mail_mode, smtp_host: saved.smtp_host, smtp_port: String(saved.smtp_port) }
+          : old,
+      );
+    } catch (e) {
+      setSettingsMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
   function insertPlaceholder(col: string) {
     const token = `{${col}}`;
     setTemplate((t) => (t.endsWith("\n") || t.length === 0 ? t + token : t + token));
@@ -418,6 +497,25 @@ export default function App() {
         </div>
       </header>
 
+      <div className="row-actions" style={{ marginBottom: "0.8rem" }}>
+        <button
+          type="button"
+          className={activeMenu === "campaign" ? "primary" : ""}
+          onClick={() => setActiveMenu("campaign")}
+        >
+          Kampány
+        </button>
+        <button
+          type="button"
+          className={activeMenu === "server" ? "primary" : ""}
+          onClick={() => setActiveMenu("server")}
+        >
+          Szerver beállítások
+        </button>
+      </div>
+
+      {activeMenu === "campaign" ? (
+        <>
       <section className="panel">
         <p className="muted" style={{ marginTop: 0 }}>
           <strong>Folyamat:</strong>
@@ -724,6 +822,130 @@ export default function App() {
           </section>
         </>
       ) : null}
+        </>
+      ) : (
+        <section className="panel">
+          <h2 className="step-title">Szerver beállítások</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Itt állítható a küldési mód és az SMTP kapcsolat. Production környezetben javasolt a Basic Auth
+            bekapcsolva tartása.
+          </p>
+          {!serverSettings ? (
+            <p className="muted">Betöltés...</p>
+          ) : (
+            <>
+              <label htmlFor="sm_mode">Küldési mód</label>
+              <select
+                id="sm_mode"
+                value={serverSettings.mail_mode}
+                disabled={settingsBusy}
+                onChange={(e) =>
+                  setServerSettings({
+                    ...serverSettings,
+                    mail_mode: e.target.value as "dry-run" | "sandbox" | "live",
+                  })
+                }
+              >
+                <option value="dry-run">dry-run</option>
+                <option value="sandbox">sandbox</option>
+                <option value="live">live</option>
+              </select>
+
+              <label htmlFor="sm_host">SMTP host</label>
+              <input
+                id="sm_host"
+                type="text"
+                value={serverSettings.smtp_host}
+                disabled={settingsBusy}
+                onChange={(e) => setServerSettings({ ...serverSettings, smtp_host: e.target.value })}
+              />
+
+              <label htmlFor="sm_port">SMTP port</label>
+              <input
+                id="sm_port"
+                type="text"
+                value={String(serverSettings.smtp_port)}
+                disabled={settingsBusy}
+                onChange={(e) =>
+                  setServerSettings({ ...serverSettings, smtp_port: Number(e.target.value || "0") || 0 })
+                }
+              />
+
+              <label htmlFor="sm_from">Feladó e-mail</label>
+              <input
+                id="sm_from"
+                type="text"
+                value={serverSettings.mail_from}
+                disabled={settingsBusy}
+                onChange={(e) => setServerSettings({ ...serverSettings, mail_from: e.target.value })}
+              />
+
+              <label htmlFor="sm_user">SMTP user</label>
+              <input
+                id="sm_user"
+                type="text"
+                value={serverSettings.smtp_user || ""}
+                disabled={settingsBusy}
+                onChange={(e) => setServerSettings({ ...serverSettings, smtp_user: e.target.value })}
+              />
+
+              <label htmlFor="sm_pass">SMTP jelszó (új érték megadásához)</label>
+              <input
+                id="sm_pass"
+                type="text"
+                value={smtpPasswordInput}
+                disabled={settingsBusy}
+                onChange={(e) => setSmtpPasswordInput(e.target.value)}
+              />
+              <p className="muted" style={{ marginTop: "0.35rem" }}>
+                Jelenleg jelszó beállítva: {serverSettings.smtp_password_set ? "igen" : "nem"}
+              </p>
+
+              <label htmlFor="sm_sandbox">Sandbox célcím</label>
+              <input
+                id="sm_sandbox"
+                type="text"
+                value={serverSettings.sandbox_redirect_to || ""}
+                disabled={settingsBusy}
+                onChange={(e) => setServerSettings({ ...serverSettings, sandbox_redirect_to: e.target.value })}
+              />
+
+              <label htmlFor="sm_tls" style={{ marginTop: "0.75rem" }}>
+                <input
+                  id="sm_tls"
+                  type="checkbox"
+                  checked={serverSettings.smtp_tls}
+                  disabled={settingsBusy}
+                  onChange={(e) => setServerSettings({ ...serverSettings, smtp_tls: e.target.checked })}
+                />{" "}
+                STARTTLS használata
+              </label>
+
+              <label htmlFor="sm_clearpwd" style={{ marginTop: "0.35rem" }}>
+                <input
+                  id="sm_clearpwd"
+                  type="checkbox"
+                  checked={clearSmtpPassword}
+                  disabled={settingsBusy}
+                  onChange={(e) => setClearSmtpPassword(e.target.checked)}
+                />{" "}
+                SMTP jelszó törlése mentéskor
+              </label>
+
+              <div className="row-actions" style={{ marginTop: "0.8rem" }}>
+                <button type="button" className="primary" disabled={settingsBusy} onClick={() => void saveServerSettings()}>
+                  Beállítások mentése
+                </button>
+              </div>
+              {settingsMessage ? (
+                <p className={settingsMessage.includes("elmentve") ? "muted" : "error"} style={{ marginTop: "0.5rem" }}>
+                  {settingsMessage}
+                </p>
+              ) : null}
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }

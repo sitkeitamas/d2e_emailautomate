@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 from email.message import EmailMessage
-from typing import Iterable
+from typing import Any
 
 import aiosmtplib
 
-from backend.config import Settings
-
-
 async def send_mail(
-    settings: Settings,
+    settings: Any,
     *,
     to_addrs: list[str],
     subject: str,

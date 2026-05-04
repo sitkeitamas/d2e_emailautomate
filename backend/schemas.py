@@ -61,3 +61,26 @@ class SendResponse(BaseModel):
 class HealthResponse(BaseModel):
     ok: bool
     mail_mode: str
+
+
+class ServerSettingsResponse(BaseModel):
+    mail_mode: str
+    sandbox_redirect_to: Optional[str] = None
+    smtp_host: str
+    smtp_port: int
+    smtp_tls: bool
+    smtp_user: Optional[str] = None
+    smtp_password_set: bool
+    mail_from: str
+
+
+class ServerSettingsUpdateRequest(BaseModel):
+    mail_mode: str
+    sandbox_redirect_to: Optional[str] = None
+    smtp_host: str
+    smtp_port: int
+    smtp_tls: bool
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    clear_smtp_password: bool = False
+    mail_from: str

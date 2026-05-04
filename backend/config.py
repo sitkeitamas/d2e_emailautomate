@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     mail_from: str = "noreply@example.invalid"
 
     max_upload_mb: int = 2
+    runtime_settings_file: str = "data/server_settings.json"
+
+    app_env: Literal["development", "production"] = "development"
+    basic_auth_enabled: bool = True
+    basic_auth_username: Optional[str] = None
+    basic_auth_password: Optional[str] = None
 
 
 @lru_cache
