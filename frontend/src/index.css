@@ -129,6 +129,31 @@ button.primary:disabled {
   font-size: 0.9rem;
 }
 
+.flow-lead {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.flow-lead li {
+  margin: 0.35rem 0;
+}
+
+.step-title {
+  font-size: 1.05rem;
+  margin: 0 0 0.65rem;
+  font-weight: 650;
+}
+
+.warn-banner {
+  border-color: #6b4f2a;
+  color: #ffd9a0;
+  font-size: 0.92rem;
+}
+
+.row-warn td {
+  background: rgba(255, 107, 107, 0.08);
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

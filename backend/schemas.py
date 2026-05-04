@@ -11,12 +11,17 @@ class ParseCsvResponse(BaseModel):
     row_count: int
 
 
+class ParsePasteRequest(BaseModel):
+    text: str
+
+
 class PreviewItem(BaseModel):
     to_email: str
     to_name: Optional[str] = None
     subject: str
     body: str
     missing_placeholders: list[str] = Field(default_factory=list)
+    missing_code: bool = False
 
 
 class PreviewRequest(BaseModel):
@@ -25,6 +30,7 @@ class PreviewRequest(BaseModel):
     rows: list[dict[str, str]]
     email_column: str
     name_column: Optional[str] = None
+    code_column: str
     limit: int = 50
 
 
@@ -38,6 +44,7 @@ class SendRequest(BaseModel):
     rows: list[dict[str, str]]
     email_column: str
     name_column: Optional[str] = None
+    code_column: str
 
 
 class SendResultItem(BaseModel):

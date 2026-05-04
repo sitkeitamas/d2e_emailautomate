@@ -8,12 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import Settings, get_settings
-from backend.csv_tools import parse_csv_bytes
+from backend.csv_tools import parse_csv_bytes, parse_table_string
 from backend.mail_send import send_mail
 from backend.render import normalize_email, render_row
 from backend.schemas import (
     HealthResponse,
     ParseCsvResponse,
+    ParsePasteRequest,
     PreviewItem,
     PreviewRequest,
     PreviewResponse,
@@ -78,6 +79,30 @@ async def parse_csv(
     return ParseCsvResponse(columns=columns, rows=rows, row_count=len(rows))
 
 
+@app.post("/api/parse-paste", response_model=ParseCsvResponse)
+def parse_paste(
+    body: ParsePasteRequest,
+    settings: Settings = Depends(_settings),
+) -> ParseCsvResponse:
+    max_chars = settings.max_upload_mb * 1024 * 1024
+    if len(body.text) > max_chars:
+        raise HTTPException(413, f"A beillesztett szöveg túl hosszú (max ~{settings.max_upload_mb} MB).")
+
+    try:
+        columns, rows = parse_table_string(body.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    if not rows:
+        raise HTTPException(400, "Üres táblázat.")
+
+    max_rows = 2000
+    if len(rows) > max_rows:
+        raise HTTPException(400, f"Túl sok sor (max {max_rows}).")
+
+    return ParseCsvResponse(columns=columns, rows=rows, row_count=len(rows))
+
+
 @app.post("/api/preview", response_model=PreviewResponse)
 def preview(req: PreviewRequest) -> PreviewResponse:
     if not req.rows:
@@ -95,6 +120,10 @@ def preview(req: PreviewRequest) -> PreviewResponse:
         except ValueError as e:
             raise HTTPException(400, f"Érvénytelen e-mail: {raw_email!r} ({e})") from e
 
+        if req.code_column not in row:
+            raise HTTPException(400, f"Nincs ilyen kód oszlop: {req.code_column!r}")
+        missing_code = not (row.get(req.code_column) or "").strip()
+
         name: Optional[str] = None
         if req.name_column and req.name_column in row:
             name = row[req.name_column] or None
@@ -107,6 +136,7 @@ def preview(req: PreviewRequest) -> PreviewResponse:
                 subject=subject,
                 body=body,
                 missing_placeholders=missing,
+                missing_code=missing_code,
             )
         )
     return PreviewResponse(items=items)
@@ -128,6 +158,25 @@ async def send(req: SendRequest, settings: Settings = Depends(_settings)) -> Sen
             target = normalize_email(raw_email)
         except ValueError as e:
             results.append(SendResultItem(to_email=raw_email, ok=False, detail=str(e)))
+            continue
+
+        if req.code_column not in row:
+            raise HTTPException(400, f"Nincs ilyen kód oszlop: {req.code_column!r}")
+
+        raw_code = (row.get(req.code_column) or "").strip()
+        if not raw_code:
+            who = (row.get(req.name_column) or "").strip() if req.name_column else ""
+            label = f"{who} – " if who else ""
+            results.append(
+                SendResultItem(
+                    to_email=target,
+                    ok=False,
+                    detail=(
+                        f"{label}hiányzik a kód az „{req.code_column}” oszlopban "
+                        "(ennek nincs értelme kód nélkül)."
+                    ),
+                )
+            )
             continue
 
         subject, body, missing = render_row(req.template, req.subject_template, row)

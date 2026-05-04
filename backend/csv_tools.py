@@ -17,13 +17,9 @@ def sniff_dialect(sample: str) -> csv.Dialect:
         return _Csv()
 
 
-def parse_csv_bytes(raw: bytes) -> tuple[list[str], list[dict[str, str]]]:
-    text = raw.decode("utf-8-sig")
-    sample = text[:4096]
-    dialect = sniff_dialect(sample)
-    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+def _rows_from_dict_reader(reader: csv.DictReader) -> tuple[list[str], list[dict[str, str]]]:
     if not reader.fieldnames:
-        raise ValueError("A CSV első sora hiányzik vagy üres.")
+        raise ValueError("Az első sor (fejléc) hiányzik vagy üres.")
 
     fieldnames = [h.strip() for h in reader.fieldnames if h is not None]
     rows: list[dict[str, str]] = []
@@ -37,6 +33,28 @@ def parse_csv_bytes(raw: bytes) -> tuple[list[str], list[dict[str, str]]]:
         if any(row.values()):
             rows.append(row)
     return fieldnames, rows
+
+
+def parse_table_string(text: str) -> tuple[list[str], list[dict[str, str]]]:
+    """CSV vagy Excelből bemásolt táblázat (TIPA: tabbal elválasztott első sor)."""
+    text = text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    if not text:
+        raise ValueError("Üres szöveg.")
+
+    sample = text[:8192]
+    first_line = sample.split("\n", 1)[0]
+    if "\t" in first_line:
+        reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    else:
+        dialect = sniff_dialect(sample)
+        reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+
+    return _rows_from_dict_reader(reader)
+
+
+def parse_csv_bytes(raw: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    text = raw.decode("utf-8-sig")
+    return parse_table_string(text)
 
 
 def replace_placeholders(template: str, row: dict[str, str]) -> tuple[str, list[str]]:

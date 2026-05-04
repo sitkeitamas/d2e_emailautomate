@@ -18,6 +18,7 @@ type PreviewItem = {
   subject: string;
   body: string;
   missing_placeholders: string[];
+  missing_code?: boolean;
 };
 
 type PreviewResponse = { items: PreviewItem[] };
@@ -49,7 +50,6 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-/** Automatikus e-mail oszlop: fejléc alapján, ha nem egyértelmű, cellákban keres @ jelet. */
 function guessEmailColumn(columns: string[], rows: Record<string, string>[]): string {
   const t = (s: string) => s.trim();
   const byHeader =
@@ -80,6 +80,36 @@ function guessNameColumn(columns: string[], emailCol: string): string {
   return hit ?? "";
 }
 
+/** Kód / Clifton / azonosító oszlop — nem az e-mail és nem a név. */
+function guessCodeColumn(
+  columns: string[],
+  rows: Record<string, string>[],
+  emailCol: string,
+  nameCol: string,
+): string {
+  const skip = new Set([emailCol, nameCol].filter(Boolean));
+  const rest = columns.filter((c) => !skip.has(c));
+  const byHeader = rest.find((c) => /kód|clifton|code|azonosít|pin|token|kulcs/i.test(c));
+  if (byHeader) return byHeader;
+
+  const sample = rows.slice(0, 10);
+  let best = "";
+  let bestScore = 0;
+  for (const col of rest) {
+    const vals = sample.map((r) => (r[col] ?? "").trim()).filter(Boolean);
+    if (!vals.length) continue;
+    const longish = vals.filter((v) => v.length >= 8 && /^[0-9A-Z]+$/i.test(v)).length;
+    const score = longish / vals.length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = col;
+    }
+  }
+  if (bestScore >= 0.2) return best;
+  if (rest.length === 1) return rest[0];
+  return "";
+}
+
 function emailColumnValidationMessage(
   rows: Record<string, string>[],
   emailColumn: string,
@@ -90,30 +120,45 @@ function emailColumnValidationMessage(
   const withoutAt = sample.filter((v) => !v.includes("@"));
   if (withoutAt.length === sample.length) {
     return (
-      "Az „E-mail oszlop” valószínűleg rossz: a mintasorokban egyik cellában sincs @. " +
-      "Válaszd a valódi e-mail oszlopot (nem a nevet)."
+      "A 2. lépésben valószínűleg rossz oszlop van kiválasztva: a mintasorokban nincs @. " +
+      "Válaszd az e-mail címek oszlopát (nem a nevet)."
     );
   }
   return null;
 }
 
-const DEFAULT_TEMPLATE =
-  "Szia {Név},\n\n" +
-  "itt a személyreszóló tesztkódod: {Kód}\n\n" +
-  "Üdv,\nautomata";
+function labelsForMissingCode(
+  rows: Record<string, string>[],
+  codeColumn: string,
+  nameColumn: string,
+  emailColumn: string,
+): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    if ((r[codeColumn] ?? "").trim()) continue;
+    const name = nameColumn ? (r[nameColumn] ?? "").trim() : "";
+    const em = (r[emailColumn] ?? "").trim();
+    out.push(name || em || "névtelen sor");
+  }
+  return out;
+}
 
 export default function App() {
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [globalError, setGlobalError] = useState<string>("");
+  const [pasteText, setPasteText] = useState("");
 
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, string>[]>([]);
 
   const [emailColumn, setEmailColumn] = useState("");
   const [nameColumn, setNameColumn] = useState("");
+  const [codeColumn, setCodeColumn] = useState("");
   const [subjectTemplate, setSubjectTemplate] = useState("Online teszt – értesítés");
-  const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
+  const [template, setTemplate] = useState(
+    "Szia {Név},\n\n" + "A teszthez a kódod: {Kód}\n\n" + "Üdvözlettel,",
+  );
 
   const [preview, setPreview] = useState<PreviewItem[] | null>(null);
   const [sendLog, setSendLog] = useState<SendResponse | null>(null);
@@ -130,10 +175,26 @@ export default function App() {
     };
   }, []);
 
+  function applyImport(parsed: ParseResponse) {
+    setColumns(parsed.columns);
+    setRows(parsed.rows);
+    const em = guessEmailColumn(parsed.columns, parsed.rows);
+    const nm = guessNameColumn(parsed.columns, em);
+    const cd = guessCodeColumn(parsed.columns, parsed.rows, em, nm);
+    setEmailColumn(em);
+    setNameColumn(nm);
+    setCodeColumn(cd);
+  }
+
   const emailColumnHint = useMemo(
     () => emailColumnValidationMessage(rows, emailColumn),
     [rows, emailColumn],
   );
+
+  const missingCodeLabels = useMemo(() => {
+    if (!codeColumn || !rows.length) return [];
+    return labelsForMissingCode(rows, codeColumn, nameColumn, emailColumn);
+  }, [rows, codeColumn, nameColumn, emailColumn]);
 
   async function onCsv(file: File | null) {
     setGlobalError("");
@@ -148,30 +209,71 @@ export default function App() {
         method: "POST",
         body: fd,
       });
-      setColumns(parsed.columns);
-      setRows(parsed.rows);
-      const autoEmail = guessEmailColumn(parsed.columns, parsed.rows);
-      const autoName = guessNameColumn(parsed.columns, autoEmail);
-      setEmailColumn(autoEmail);
-      setNameColumn(autoName);
+      applyImport(parsed);
     } catch (e) {
       setColumns([]);
       setRows([]);
+      setEmailColumn("");
+      setNameColumn("");
+      setCodeColumn("");
       setGlobalError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
+  async function onParsePaste() {
+    setGlobalError("");
+    setPreview(null);
+    setSendLog(null);
+    if (!pasteText.trim()) {
+      setGlobalError("Illessz be legalább a fejlécet és egy adatsort (Excel: jelöld ki a táblát, majd Ctrl+C / Cmd+C).");
+      return;
+    }
+    setBusy(true);
+    try {
+      const parsed = await fetchJson<ParseResponse>("/api/parse-paste", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: pasteText }),
+      });
+      applyImport(parsed);
+    } catch (e) {
+      setColumns([]);
+      setRows([]);
+      setEmailColumn("");
+      setNameColumn("");
+      setCodeColumn("");
+      setGlobalError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function applyTemplateFromColumns() {
+    if (!nameColumn || !codeColumn) {
+      setGlobalError("A 3. és 4. lépésben válaszd ki a név- és a kód oszlopot, utána újra próbáld.");
+      return;
+    }
+    setGlobalError("");
+    setTemplate(
+      `Szia {${nameColumn}},\n\n` + `A teszthez a kódod: {${codeColumn}}\n\n` + `Üdvözlettel,`,
+    );
+  }
+
   async function onPreview() {
     setGlobalError("");
     setSendLog(null);
     if (!rows.length) {
-      setGlobalError("Előbb tölts fel CSV-t.");
+      setGlobalError("1. lépés: tölts fel fájlt, vagy illessz be táblázatot, majd „Beolvasás”.");
       return;
     }
     if (!emailColumn) {
-      setGlobalError("Válaszd ki az e-mail oszlopot.");
+      setGlobalError("2. lépés: válaszd ki, melyik oszlop az e-mail cím (hova küldjünk).");
+      return;
+    }
+    if (!codeColumn) {
+      setGlobalError("4. lépés: válaszd ki a kód oszlopot (mit tegyen a kódsorba).");
       return;
     }
     const colHint = emailColumnValidationMessage(rows, emailColumn);
@@ -190,6 +292,7 @@ export default function App() {
           rows,
           email_column: emailColumn,
           name_column: nameColumn || null,
+          code_column: codeColumn,
           limit: 25,
         }),
       });
@@ -205,11 +308,15 @@ export default function App() {
   async function onSend() {
     setGlobalError("");
     if (!rows.length) {
-      setGlobalError("Előbb tölts fel CSV-t.");
+      setGlobalError("1. lépés: nincs betöltött táblázat.");
       return;
     }
     if (!emailColumn) {
-      setGlobalError("Válaszd ki az e-mail oszlopot.");
+      setGlobalError("2. lépés: válaszd ki az e-mail oszlopot.");
+      return;
+    }
+    if (!codeColumn) {
+      setGlobalError("4. lépés: válaszd ki a kód oszlopot.");
       return;
     }
     const colHintSend = emailColumnValidationMessage(rows, emailColumn);
@@ -217,10 +324,18 @@ export default function App() {
       setGlobalError(colHintSend);
       return;
     }
+    if (missingCodeLabels.length) {
+      setGlobalError(
+        `Küldés nem indul: ${missingCodeLabels.length} sorban nincs kód a „${codeColumn}” oszlopban. ` +
+          `Például: ${missingCodeLabels.slice(0, 4).join(", ")}. ` +
+          `Töltsd ki a kódot, vagy töröld ezeket a sorokat a táblázatból.`,
+      );
+      return;
+    }
 
     if (cfg?.mail_mode === "live") {
       const ok = window.confirm(
-        "A szerver LIVE módban van. Valóban az Excel/CSV sorok címére mennek a levelek?",
+        "A szerver LIVE módban van. A levelek a kiválasztott e-mail oszlop címeire mennek. Folytatod?",
       );
       if (!ok) return;
     }
@@ -236,6 +351,7 @@ export default function App() {
           rows,
           email_column: emailColumn,
           name_column: nameColumn || null,
+          code_column: codeColumn,
         }),
       });
       setSendLog(res);
@@ -275,10 +391,40 @@ export default function App() {
         </div>
       </header>
 
+      <section className="panel">
+        <p className="muted" style={{ marginTop: 0 }}>
+          <strong>Folyamat:</strong>
+        </p>
+        <ol className="flow-lead muted">
+          <li>
+            <strong>Táblázat</strong> — CSV fájl vagy Excelből kimásolt táblázat (fejléc + sorok).
+          </li>
+          <li>
+            <strong>E-mail oszlop</strong> — melyik fejléc alatt vannak a címzettek (ide megy a levél).
+          </li>
+          <li>
+            <strong>Név oszlop</strong> — kinek szól a szöveg a sablon <code>{"{…}"}</code> helyén.
+          </li>
+          <li>
+            <strong>Kód oszlop</strong> — melyik cella megy a kódsorba;{" "}
+            <strong>üres kódnál nem indul a küldés</strong> (előtte javítsd a listát).
+          </li>
+        </ol>
+      </section>
+
       {globalError ? <div className="panel error">{globalError}</div> : null}
 
+      {missingCodeLabels.length > 0 ? (
+        <div className="panel warn-banner">
+          <strong>Figyelem:</strong> {missingCodeLabels.length} résztvevőnek nincs kitöltve a „
+          {codeColumn}” oszlop (pl. {missingCodeLabels.slice(0, 3).join(", ")}
+          ). Küldés csak akkor engedélyezett, ha minden sorban van kód — vagy töröld a hiányos sorokat.
+        </div>
+      ) : null}
+
       <section className="panel">
-        <label htmlFor="csv">CSV feltöltés (fejléc + sorok; elválasztó: vessző vagy pontosvessző)</label>
+        <h2 className="step-title">1. Táblázat betöltése</h2>
+        <label htmlFor="csv">Fájl (CSV)</label>
         <input
           id="csv"
           type="file"
@@ -286,18 +432,38 @@ export default function App() {
           disabled={busy}
           onChange={(e) => void onCsv(e.target.files?.[0] ?? null)}
         />
+        <p className="muted" style={{ marginTop: "0.65rem" }}>
+          Vagy másold ki az Excelből (fejléc + sorok), és illeszd be ide — tabbal elválasztott, ahogy az
+          Excel másolja:
+        </p>
+        <textarea
+          id="paste"
+          rows={8}
+          placeholder={"Név\tEmail\tClifton kód\nKiss Anna\tanna@pelda.hu\tABCD1234…"}
+          value={pasteText}
+          disabled={busy}
+          onChange={(e) => setPasteText(e.target.value)}
+          style={{ marginTop: "0.35rem" }}
+        />
+        <div className="row-actions" style={{ marginTop: "0.5rem" }}>
+          <button type="button" className="primary" disabled={busy} onClick={() => void onParsePaste()}>
+            Beolvasás (beillesztett szöveg)
+          </button>
+        </div>
         <p className="muted" style={{ marginTop: "0.5rem" }}>
-          Tesztadat: <code>fixtures/participants_fake.csv</code> (nem éles címek / kódok).
+          Teszt: <code>fixtures/participants_fake.csv</code>. Éles névsor ne kerüljön nyilvános repóba.
         </p>
         {rows.length ? (
           <p className="muted" style={{ marginTop: "0.35rem" }}>
-            Beolvasva: <strong>{rows.length}</strong> sor, oszlopok: {columns.join(", ")}
+            Beolvasva: <strong>{rows.length}</strong> adatsor | oszlopok:{" "}
+            <strong>{columns.join(", ")}</strong>
           </p>
         ) : null}
       </section>
 
       <section className="panel">
-        <label htmlFor="emailCol">E-mail oszlop</label>
+        <h2 className="step-title">2. E-mail oszlop (címzett — hova küldjünk)</h2>
+        <label htmlFor="emailCol">Oszlop neve a táblázatban</label>
         <select
           id="emailCol"
           value={emailColumn}
@@ -317,36 +483,70 @@ export default function App() {
           </p>
         ) : rows.length && emailColumn ? (
           <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
-            Kiválasztva: <code>{emailColumn}</code> — minta:{" "}
-            <code>{(rows[0][emailColumn] ?? "").slice(0, 80) || "üres"}</code>
+            Minta (első sor): <code>{(rows[0][emailColumn] ?? "").slice(0, 80) || "üres"}</code>
           </p>
         ) : null}
 
-        <label htmlFor="nameCol">Név oszlop (opcionális, csak napló / jövőbeli fejléc)</label>
+        <h2 className="step-title" style={{ marginTop: "1.1rem" }}>
+          3. Név oszlop (megszólítás a levélben)
+        </h2>
+        <label htmlFor="nameCol">Melyik oszlop tartalmazza a teljes nevet?</label>
         <select
           id="nameCol"
           value={nameColumn}
           disabled={!columns.length || busy}
           onChange={(e) => setNameColumn(e.target.value)}
         >
-          <option value="">— nincs —</option>
+          <option value="">— nincs kiválasztva —</option>
           {columns.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </select>
+        <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
+          A levélszövegben ugyanilyen fejlécnevet használj kapcsos zárójelben, pl. ha innen választod a „
+          {nameColumn || "Név"}” oszlopot, írd a sablonba: <code>{"{" + (nameColumn || "Név") + "}"}</code>
+        </p>
 
-        <p className="muted" style={{ marginTop: "0.6rem" }}>
-          Helyőrzők: a sablonban pontosan a fejléc neve kapcsos zárójelben, pl.{" "}
-          <code>{"{Név}"}</code>, <code>{"{Email}"}</code>, <code>{"{Kód}"}</code> — egyeznie kell a CSV
-          első sorával (kisbetű/nagybetű nem számít).
+        <h2 className="step-title" style={{ marginTop: "1.1rem" }}>
+          4. Kód oszlop (tesztkód / Clifton — mit írjunk a kódsorba)
+        </h2>
+        <label htmlFor="codeCol">Melyik oszlop a személyre szóló kód?</label>
+        <select
+          id="codeCol"
+          value={codeColumn}
+          disabled={!columns.length || busy}
+          onChange={(e) => setCodeColumn(e.target.value)}
+        >
+          <option value="">— válassz —</option>
+          {columns.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        {rows.length && codeColumn ? (
+          <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
+            Minta kód (első sor): <code>{(rows[0][codeColumn] ?? "").slice(0, 40) || "üres — ez gond lehet"}</code>
+          </p>
+        ) : null}
+
+        <div className="row-actions" style={{ marginTop: "0.75rem" }}>
+          <button type="button" disabled={busy || !nameColumn || !codeColumn} onClick={applyTemplateFromColumns}>
+            Sablon kitöltése a kiválasztott oszlopnevekkel
+          </button>
+        </div>
+
+        <p className="muted" style={{ marginTop: "0.75rem" }}>
+          Egyéb mezők (pl. csoport) szintén beírhatók a levélbe: a fejléc nevét tedd kapcsos zárójelbe.{" "}
+          <strong>A kisbetű/nagybetű nem számít</strong> a párosításnál.
         </p>
 
         {columns.length ? (
           <div>
             <div className="muted" style={{ marginTop: "0.5rem" }}>
-              Kattints: beszúrás a levél végére
+              Helyőrző beszúrása a levél végére (kattints):
             </div>
             <div className="chips">
               {columns.map((c) => (
@@ -366,6 +566,7 @@ export default function App() {
       </section>
 
       <section className="panel">
+        <h2 className="step-title">Levél szövege</h2>
         <label htmlFor="subj">Tárgy sablon</label>
         <input
           id="subj"
@@ -375,7 +576,7 @@ export default function App() {
           onChange={(e) => setSubjectTemplate(e.target.value)}
         />
 
-        <label htmlFor="body">Levél szövege (plain text)</label>
+        <label htmlFor="body">Szöveg (plain text + {"{oszlopnevek}"})</label>
         <textarea id="body" value={template} disabled={busy} onChange={(e) => setTemplate(e.target.value)} />
 
         <div className="row-actions">
@@ -387,8 +588,8 @@ export default function App() {
           </button>
         </div>
         <p className="muted" style={{ marginTop: "0.6rem" }}>
-          <strong>dry-run:</strong> nem megy SMTP; <strong>sandbox:</strong> minden levél a{" "}
-          <code>SANDBOX_REDIRECT_TO</code> címre; <strong>live:</strong> a CSV e-mail oszlopa.
+          <strong>dry-run:</strong> nem megy SMTP; <strong>sandbox:</strong> összes tesztlevél egy biztonságos
+          címre; <strong>live:</strong> valódi címzettek.
         </p>
       </section>
 
@@ -399,22 +600,24 @@ export default function App() {
             <thead>
               <tr>
                 <th>Címzett</th>
+                <th>Kód</th>
                 <th>Tárgy</th>
-                <th>Hiányzó</th>
+                <th>Helyőrző</th>
                 <th>Szöveg (rövidítve)</th>
               </tr>
             </thead>
             <tbody>
-              {preview.map((p) => (
-                <tr key={p.to_email + p.subject}>
+              {preview.map((p, idx) => (
+                <tr key={idx} className={p.missing_code ? "row-warn" : undefined}>
                   <td>
                     {p.to_name ? `${p.to_name} ` : ""}
                     <code>{p.to_email}</code>
                   </td>
+                  <td>{p.missing_code ? "HIÁNYZIK" : "OK"}</td>
                   <td>{p.subject}</td>
                   <td>{p.missing_placeholders.length ? p.missing_placeholders.join(", ") : "—"}</td>
                   <td>
-                    <pre>{p.body.length > 600 ? p.body.slice(0, 600) + "…" : p.body}</pre>
+                    <pre>{p.body.length > 500 ? p.body.slice(0, 500) + "…" : p.body}</pre>
                   </td>
                 </tr>
               ))}
@@ -435,8 +638,8 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {sendLog.results.map((r) => (
-                <tr key={r.to_email + r.detail}>
+              {sendLog.results.map((r, idx) => (
+                <tr key={idx + r.to_email + r.detail.slice(0, 40)}>
                   <td>
                     <code>{r.to_email}</code>
                   </td>
