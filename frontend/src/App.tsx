@@ -49,6 +49,54 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** Automatikus e-mail oszlop: fejléc alapján, ha nem egyértelmű, cellákban keres @ jelet. */
+function guessEmailColumn(columns: string[], rows: Record<string, string>[]): string {
+  const t = (s: string) => s.trim();
+  const byHeader =
+    columns.find((c) => /^e-?mail$/i.test(t(c))) ||
+    columns.find((c) => /e-?mail|email|posta|mail\s*c(i|í)m/i.test(c));
+  if (byHeader) return byHeader;
+
+  const sample = rows.slice(0, Math.min(rows.length, 20));
+  let best = "";
+  let bestScore = 0;
+  for (const col of columns) {
+    const vals = sample.map((r) => (r[col] ?? "").trim()).filter(Boolean);
+    if (!vals.length) continue;
+    const withAt = vals.filter((v) => v.includes("@")).length;
+    const score = withAt / vals.length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = col;
+    }
+  }
+  if (bestScore >= 0.25) return best;
+  return "";
+}
+
+function guessNameColumn(columns: string[], emailCol: string): string {
+  const rest = columns.filter((c) => c !== emailCol);
+  const hit = rest.find((c) => /név|name|nev|teljes\s*név/i.test(c));
+  return hit ?? "";
+}
+
+function emailColumnValidationMessage(
+  rows: Record<string, string>[],
+  emailColumn: string,
+): string | null {
+  if (!emailColumn || !rows.length) return null;
+  const sample = rows.slice(0, 8).map((r) => (r[emailColumn] ?? "").trim()).filter(Boolean);
+  if (!sample.length) return "Az e-mail oszlop első sorai üresek.";
+  const withoutAt = sample.filter((v) => !v.includes("@"));
+  if (withoutAt.length === sample.length) {
+    return (
+      "Az „E-mail oszlop” valószínűleg rossz: a mintasorokban egyik cellában sincs @. " +
+      "Válaszd a valódi e-mail oszlopot (nem a nevet)."
+    );
+  }
+  return null;
+}
+
 const DEFAULT_TEMPLATE =
   "Szia {Név},\n\n" +
   "itt a személyreszóló tesztkódod: {Kód}\n\n" +
@@ -82,16 +130,10 @@ export default function App() {
     };
   }, []);
 
-  const heuristicColumns = useMemo(() => {
-    const em = columns.find((c) => /email|e-mail|mail/i.test(c));
-    const nm = columns.find((c) => /név|name|nev/i.test(c));
-    return { em, nm };
-  }, [columns]);
-
-  useEffect(() => {
-    if (!emailColumn && heuristicColumns.em) setEmailColumn(heuristicColumns.em);
-    if (!nameColumn && heuristicColumns.nm) setNameColumn(heuristicColumns.nm);
-  }, [heuristicColumns, emailColumn, nameColumn]);
+  const emailColumnHint = useMemo(
+    () => emailColumnValidationMessage(rows, emailColumn),
+    [rows, emailColumn],
+  );
 
   async function onCsv(file: File | null) {
     setGlobalError("");
@@ -108,8 +150,10 @@ export default function App() {
       });
       setColumns(parsed.columns);
       setRows(parsed.rows);
-      setEmailColumn("");
-      setNameColumn("");
+      const autoEmail = guessEmailColumn(parsed.columns, parsed.rows);
+      const autoName = guessNameColumn(parsed.columns, autoEmail);
+      setEmailColumn(autoEmail);
+      setNameColumn(autoName);
     } catch (e) {
       setColumns([]);
       setRows([]);
@@ -128,6 +172,11 @@ export default function App() {
     }
     if (!emailColumn) {
       setGlobalError("Válaszd ki az e-mail oszlopot.");
+      return;
+    }
+    const colHint = emailColumnValidationMessage(rows, emailColumn);
+    if (colHint) {
+      setGlobalError(colHint);
       return;
     }
     setBusy(true);
@@ -161,6 +210,11 @@ export default function App() {
     }
     if (!emailColumn) {
       setGlobalError("Válaszd ki az e-mail oszlopot.");
+      return;
+    }
+    const colHintSend = emailColumnValidationMessage(rows, emailColumn);
+    if (colHintSend) {
+      setGlobalError(colHintSend);
       return;
     }
 
@@ -257,6 +311,16 @@ export default function App() {
             </option>
           ))}
         </select>
+        {emailColumnHint ? (
+          <p className="error" style={{ marginTop: "0.45rem", fontSize: "0.92rem" }}>
+            {emailColumnHint}
+          </p>
+        ) : rows.length && emailColumn ? (
+          <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
+            Kiválasztva: <code>{emailColumn}</code> — minta:{" "}
+            <code>{(rows[0][emailColumn] ?? "").slice(0, 80) || "üres"}</code>
+          </p>
+        ) : null}
 
         <label htmlFor="nameCol">Név oszlop (opcionális, csak napló / jövőbeli fejléc)</label>
         <select

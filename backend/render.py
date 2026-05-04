@@ -17,7 +17,15 @@ def render_row(
 
 
 def normalize_email(addr: str) -> str:
+    raw = (addr or "").strip()
+    if not raw:
+        raise ValueError("Üres e-mail mező ebben a sorban.")
+    if "@" not in raw:
+        raise ValueError(
+            "Érvénytelen e-mail: nincs „@” jel. Gyakori ok: a felületen az „E-mail oszlop” "
+            "helyett véletlenül a név (vagy más) oszlop van kiválasztva."
+        )
     try:
-        return validate_email(addr, check_deliverability=False).normalized
+        return validate_email(raw, check_deliverability=False).normalized
     except EmailNotValidError as e:
-        raise ValueError(str(e)) from e
+        raise ValueError(f"Érvénytelen e-mail: {e}") from e
