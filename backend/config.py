@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     mail_from: str = "noreply@example.invalid"
+    archive_bcc_to: Optional[str] = None
 
     max_upload_mb: int = 2
     runtime_settings_file: str = "data/server_settings.json"

@@ -72,6 +72,7 @@ class ServerSettingsResponse(BaseModel):
     smtp_user: Optional[str] = None
     smtp_password_set: bool
     mail_from: str
+    archive_bcc_to: Optional[str] = None
 
 
 class ServerSettingsUpdateRequest(BaseModel):
@@ -84,3 +85,4 @@ class ServerSettingsUpdateRequest(BaseModel):
     smtp_password: Optional[str] = None
     clear_smtp_password: bool = False
     mail_from: str
+    archive_bcc_to: Optional[str] = None

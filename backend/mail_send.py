@@ -9,6 +9,7 @@ async def send_mail(
     settings: Any,
     *,
     to_addrs: list[str],
+    bcc_addrs: list[str] | None = None,
     subject: str,
     body_text: str,
 ) -> str:
@@ -21,9 +22,13 @@ async def send_mail(
             raise RuntimeError("sandbox módhoz állítsd be a SANDBOX_REDIRECT_TO környezeti változót.")
         recipients = [settings.sandbox_redirect_to]
 
+    bcc_recipients = [a.strip() for a in (bcc_addrs or []) if (a or "").strip()]
+
     msg = EmailMessage()
     msg["From"] = settings.mail_from
     msg["To"] = ", ".join(recipients)
+    if bcc_recipients:
+        msg["Bcc"] = ", ".join(bcc_recipients)
     msg["Subject"] = subject
     msg.set_content(body_text)
 
@@ -39,5 +44,5 @@ async def send_mail(
     ) as smtp:
         if settings.smtp_user and settings.smtp_password:
             await smtp.login(settings.smtp_user, settings.smtp_password)
-        await smtp.send_message(msg, recipients=recipients)
+        await smtp.send_message(msg, recipients=[*recipients, *bcc_recipients])
     return "elküldve"

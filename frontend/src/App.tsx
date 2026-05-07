@@ -38,6 +38,7 @@ type ServerSettings = {
   smtp_user?: string | null;
   smtp_password_set: boolean;
   mail_from: string;
+  archive_bcc_to?: string | null;
 };
 
 type ServerSettingsUpdate = {
@@ -50,6 +51,7 @@ type ServerSettingsUpdate = {
   smtp_password?: string | null;
   clear_smtp_password: boolean;
   mail_from: string;
+  archive_bcc_to?: string | null;
 };
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -461,6 +463,7 @@ export default function App() {
         smtp_password: smtpPasswordInput || null,
         clear_smtp_password: clearSmtpPassword,
         mail_from: serverSettings.mail_from,
+        archive_bcc_to: serverSettings.archive_bcc_to || null,
       };
       const saved = await fetchJson<ServerSettings>("/api/server-settings", {
         method: "PUT",
@@ -923,6 +926,15 @@ export default function App() {
                 value={serverSettings.sandbox_redirect_to || ""}
                 disabled={settingsBusy}
                 onChange={(e) => setServerSettings({ ...serverSettings, sandbox_redirect_to: e.target.value })}
+              />
+
+              <label htmlFor="sm_bcc">Archív BCC cím</label>
+              <input
+                id="sm_bcc"
+                type="text"
+                value={serverSettings.archive_bcc_to || ""}
+                disabled={settingsBusy}
+                onChange={(e) => setServerSettings({ ...serverSettings, archive_bcc_to: e.target.value })}
               />
 
               <label htmlFor="sm_tls" style={{ marginTop: "0.75rem" }}>

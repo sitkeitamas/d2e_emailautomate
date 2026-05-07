@@ -19,6 +19,7 @@ class RuntimeMailSettings(BaseModel):
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     mail_from: str
+    archive_bcc_to: Optional[str] = None
 
 
 class RuntimeMailSettingsUpdate(BaseModel):
@@ -31,6 +32,7 @@ class RuntimeMailSettingsUpdate(BaseModel):
     smtp_password: Optional[str] = None
     clear_smtp_password: bool = False
     mail_from: str
+    archive_bcc_to: Optional[str] = None
 
 
 class RuntimeMailSettingsPublic(BaseModel):
@@ -42,6 +44,7 @@ class RuntimeMailSettingsPublic(BaseModel):
     smtp_user: Optional[str] = None
     smtp_password_set: bool
     mail_from: str
+    archive_bcc_to: Optional[str] = None
 
 
 class RuntimeSettingsStore:
@@ -60,6 +63,7 @@ class RuntimeSettingsStore:
             smtp_user=settings.smtp_user,
             smtp_password=settings.smtp_password,
             mail_from=settings.mail_from,
+            archive_bcc_to=settings.archive_bcc_to,
         )
 
     def get(self, settings: Settings) -> RuntimeMailSettings:
@@ -91,6 +95,7 @@ class RuntimeSettingsStore:
                 smtp_user=payload.smtp_user,
                 smtp_password=new_password,
                 mail_from=payload.mail_from,
+                archive_bcc_to=payload.archive_bcc_to,
             )
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(
@@ -111,4 +116,5 @@ def to_public(settings: RuntimeMailSettings) -> RuntimeMailSettingsPublic:
         smtp_user=settings.smtp_user,
         smtp_password_set=bool(settings.smtp_password),
         mail_from=settings.mail_from,
+        archive_bcc_to=settings.archive_bcc_to,
     )

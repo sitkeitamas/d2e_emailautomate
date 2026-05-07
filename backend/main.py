@@ -282,9 +282,11 @@ async def send(req: SendRequest, settings: Settings = Depends(_settings)) -> Sen
             )
 
         try:
+            bcc_list = [runtime.archive_bcc_to] if runtime.archive_bcc_to else []
             await send_mail(
                 runtime,
                 to_addrs=[target],
+                bcc_addrs=bcc_list,
                 subject=subject,
                 body_text=body_out,
             )

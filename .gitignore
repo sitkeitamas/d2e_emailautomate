@@ -12,3 +12,4 @@ static/
 # Ne kerüljön a repóba: éles névsor / szövegminta (fixtures/ tesztnek elég).
 xls/*.xlsx
 Doc/*.docx
+README.local.md
