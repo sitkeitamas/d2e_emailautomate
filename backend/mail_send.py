@@ -27,12 +27,16 @@ async def send_mail(
     msg["Subject"] = subject
     msg.set_content(body_text)
 
+    # 465 = implicit TLS (SMTPS), 587/25 = plain + optional STARTTLS.
+    smtp_port = int(settings.smtp_port)
+    use_implicit_tls = bool(settings.smtp_tls and smtp_port == 465)
+    use_starttls = bool(settings.smtp_tls and not use_implicit_tls)
     async with aiosmtplib.SMTP(
         hostname=settings.smtp_host,
-        port=settings.smtp_port,
+        port=smtp_port,
+        use_tls=use_implicit_tls,
+        start_tls=use_starttls,
     ) as smtp:
-        if settings.smtp_tls:
-            await smtp.starttls()
         if settings.smtp_user and settings.smtp_password:
             await smtp.login(settings.smtp_user, settings.smtp_password)
         await smtp.send_message(msg, recipients=recipients)

@@ -182,9 +182,16 @@ export default function App() {
   const [emailColumn, setEmailColumn] = useState("");
   const [nameColumn, setNameColumn] = useState("");
   const [codeColumn, setCodeColumn] = useState("");
-  const [subjectTemplate, setSubjectTemplate] = useState("Online teszt – értesítés");
+  const [subjectTemplate, setSubjectTemplate] = useState("Clifton Strengths – hozzáférési kód");
   const [template, setTemplate] = useState(
-    "Szia {Név},\n\n" + "A teszthez a kódod: {Kód}\n\n" + "Üdvözlettel,",
+    "Szia {Név},\n\n" +
+      "Ezzel a kóddal tudod elindítani a Clifton Strengths tesztet:\n" +
+      "{Kód}\n\n" +
+      "Ezen a linken kell megadnod a kódot:\n" +
+      "https://my.gallup.com/_Home/RedeemAccessCode\n\n" +
+      "Ne feledd, hogy a belépéshez regisztrálnod is kell majd.\n\n" +
+      "Üdv,\n" +
+      "Tamás",
   );
 
   const [preview, setPreview] = useState<PreviewItem[] | null>(null);
@@ -326,7 +333,14 @@ export default function App() {
     }
     setGlobalError("");
     setTemplate(
-      `Szia {${nameColumn}},\n\n` + `A teszthez a kódod: {${codeColumn}}\n\n` + `Üdvözlettel,`,
+      `Szia {${nameColumn}},\n\n` +
+        "Ezzel a kóddal tudod elindítani a Clifton Strengths tesztet:\n" +
+        `{${codeColumn}}\n\n` +
+        "Ezen a linken kell megadnod a kódot:\n" +
+        "https://my.gallup.com/_Home/RedeemAccessCode\n\n" +
+        "Ne feledd, hogy a belépéshez regisztrálnod is kell majd.\n\n" +
+        "Üdv,\n" +
+        "Tamás",
     );
   }
 
@@ -482,6 +496,7 @@ export default function App() {
     ) : (
       <span className="badge">mód: dry-run</span>
     );
+  const sendButtonLabel = `Küldés (${cfg?.mail_mode ?? "dry-run"})`;
 
   return (
     <div className="shell">
@@ -720,7 +735,7 @@ export default function App() {
             Előnézet
           </button>
           <button type="button" className="primary" disabled={busy} onClick={() => void onSend()}>
-            Küldés (szerver mód szerint)
+            {sendButtonLabel}
           </button>
         </div>
         {globalError ? (

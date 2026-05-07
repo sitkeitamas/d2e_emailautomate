@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Optional
 
 from pydantic import BaseModel
@@ -47,7 +47,7 @@ class RuntimeMailSettingsPublic(BaseModel):
 class RuntimeSettingsStore:
     def __init__(self, path: Path):
         self._path = path
-        self._lock = Lock()
+        self._lock = RLock()
         self._cached: Optional[RuntimeMailSettings] = None
 
     def _defaults(self, settings: Settings) -> RuntimeMailSettings:
