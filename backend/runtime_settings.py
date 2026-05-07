@@ -50,6 +50,7 @@ class RuntimeMailSettingsPublic(BaseModel):
 class RuntimeSettingsStore:
     def __init__(self, path: Path):
         self._path = path
+        # RLock kell, mert update() a lock alatt meghívja a get()-et is.
         self._lock = RLock()
         self._cached: Optional[RuntimeMailSettings] = None
 
@@ -75,12 +76,14 @@ class RuntimeSettingsStore:
                 self._cached = defaults
                 return self._cached
             data = json.loads(self._path.read_text(encoding="utf-8"))
+            # Fájlból olvasott értékek felülírják az env defaultokat.
             self._cached = RuntimeMailSettings(**{**defaults.model_dump(), **data})
             return self._cached
 
     def update(self, settings: Settings, payload: RuntimeMailSettingsUpdate) -> RuntimeMailSettings:
         with self._lock:
             current = self.get(settings)
+            # Ha nem adnak meg új jelszót, a meglévőt megtartjuk.
             new_password = current.smtp_password
             if payload.clear_smtp_password:
                 new_password = None

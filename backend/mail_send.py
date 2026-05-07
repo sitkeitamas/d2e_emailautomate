@@ -22,6 +22,7 @@ async def send_mail(
             raise RuntimeError("sandbox módhoz állítsd be a SANDBOX_REDIRECT_TO környezeti változót.")
         recipients = [settings.sandbox_redirect_to]
 
+    # Archív másolat(ok): operatív visszakeresés/továbbítás célra.
     bcc_recipients = [a.strip() for a in (bcc_addrs or []) if (a or "").strip()]
 
     msg = EmailMessage()
@@ -44,5 +45,6 @@ async def send_mail(
     ) as smtp:
         if settings.smtp_user and settings.smtp_password:
             await smtp.login(settings.smtp_user, settings.smtp_password)
+        # SMTP envelope recipient listbe a BCC címeket is be kell tenni.
         await smtp.send_message(msg, recipients=[*recipients, *bcc_recipients])
     return "elküldve"
